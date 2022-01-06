@@ -1,3 +1,8 @@
+using GraphPlot
+using Colors
+using Cairo
+using Fontconfig
+
 """
     AtomGraph{A}
 

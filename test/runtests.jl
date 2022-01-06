@@ -2,5 +2,6 @@ using AtomGraphs
 using Test
 
 @testset "AtomGraphs.jl" begin
-    # Write your tests here.
+    include("AtomGraph_tests.jl")
+    include("graph_building_tests.jl")
 end

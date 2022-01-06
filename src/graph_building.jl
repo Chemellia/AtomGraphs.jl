@@ -1,3 +1,6 @@
+using PyCall
+using NearestNeighbors
+
 # options for decay of bond weights with distance...
 # user can of course write their own as well
 inverse_square(x) = x^-2.0
@@ -8,7 +11,7 @@ Build graph from a file storing a crystal structure (currently supports anything
 
 # Arguments
 ## Required Arguments
-- `file_path::String`: Path to ASE-readable file containing a molecule/crystal structure
+- `file_path::String`: Path to Xtals-readable file containing a molecule/crystal structure
 
 ## Keyword Arguments
 - `use_voronoi::bool`: if true, use Voronoi method for neighbor lists, if false use cutoff method
