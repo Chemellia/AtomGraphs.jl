@@ -20,6 +20,7 @@ Xtals = "ede5f01d-793e-4c47-9885-c447d1f18d6d"
 [compat]
 Cairo = "1"
 Colors = "0.12"
+Conda = "1.6"
 Fontconfig = "0.4"
 GraphPlot = "0.5"
 Graphs = "1.4.1"
