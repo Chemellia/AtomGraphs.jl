@@ -8,6 +8,8 @@ using Xtals
 #rc[:paths][:crystals] = @__DIR__ # so that Xtals.jl knows where things are
 using MolecularGraph
 
+import ChemistryFeaturization: elements
+
 include("atomgraph.jl")
 export AtomGraph, elements, visualize
 
