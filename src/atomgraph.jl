@@ -277,5 +277,5 @@ function visualize(ag::AtomGraph)
         nodelabel = ag.elements,
         edgelinewidth = graph_edgewidths(ag),
     )
-    display(plt)
+    # display(plt)
 end
