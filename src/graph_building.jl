@@ -34,7 +34,7 @@ function build_graph(
 
     if use_voronoi
         @info "Note that building neighbor lists and edge weights via the Voronoi method requires the assumption of periodic boundaries. If you are building a graph for a molecule, you probably do not want this..."
-        s = pyimport_conda("pymatgen.core.structure", "pymatgen", "conda-forge")
+        s = pyimport_conda("pymatgen.core.structure", "pymatgen=2022.3.7", "conda-forge")
         struc = s.Structure.from_file(file_path)
         weight_mat = weights_voronoi(struc)
         return weight_mat, atom_ids, struc
@@ -119,7 +119,7 @@ Build graph using neighbors from faces of Voronoi polyedra and weights from area
 """
 function weights_voronoi(struc)
     num_atoms = size(struc)[1]
-    sa = pyimport_conda("pymatgen.analysis.structure_analyzer", "pymatgen", "conda-forge")
+    sa = pyimport_conda("pymatgen.analysis.structure_analyzer", "pymatgen=2022.3.7", "conda-forge")
     vc = sa.VoronoiConnectivity(struc)
     conn = vc.connectivity_array
     weight_mat = zeros(Float32, num_atoms, num_atoms)
@@ -193,4 +193,3 @@ function neighbor_list(crys::Crystal; cutoff_radius::Real = 8.0)
 end
 
 # TODO: graphs from SMILES via OpenSMILES.jl
-
