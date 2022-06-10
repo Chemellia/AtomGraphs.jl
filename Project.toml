@@ -1,7 +1,7 @@
 name = "AtomGraphs"
 uuid = "5a360db7-3336-4c46-b5a1-be4fe079ea55"
 authors = ["Rachel Kurchin <rkurchin@cmu.edu> and contributors"]
-version = "0.1.1"
+version = "0.1.2"
 
 [deps]
 Cairo = "159f3aea-2a34-519c-b102-8c37f9878175"
