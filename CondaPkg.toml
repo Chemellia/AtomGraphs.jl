@@ -1,0 +1,4 @@
+channels = ["anaconda", "conda-forge"]
+
+[deps]
+pymatgen = "=2022.3.7"

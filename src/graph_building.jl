@@ -1,4 +1,4 @@
-using PyCall
+using PythonCall
 using NearestNeighbors
 
 # options for decay of bond weights with distance...
@@ -34,7 +34,7 @@ function build_graph(
 
     if use_voronoi
         @info "Note that building neighbor lists and edge weights via the Voronoi method requires the assumption of periodic boundaries. If you are building a graph for a molecule, you probably do not want this..."
-        s = pyimport_conda("pymatgen.core.structure", "pymatgen=2022.3.7", "conda-forge")
+        s = pyimport("pymatgen.core.structure")
         struc = s.Structure.from_file(file_path)
         weight_mat = weights_voronoi(struc)
         return weight_mat, atom_ids, struc
@@ -118,21 +118,22 @@ end
 Build graph using neighbors from faces of Voronoi polyedra and weights from areas. Based on the approach from https://github.com/ulissigroup/uncertainty_benchmarking/blob/aabb407807e35b5fd6ad06b14b440609ae09e6ef/BNN/data_pyro.py#L268
 """
 function weights_voronoi(struc)
-    num_atoms = size(struc)[1]
-    sa = pyimport_conda("pymatgen.analysis.structure_analyzer", "pymatgen=2022.3.7", "conda-forge")
+    num_atoms = length(struc)
+    sa = pyimport("pymatgen.analysis.structure_analyzer")
     vc = sa.VoronoiConnectivity(struc)
     conn = vc.connectivity_array
     weight_mat = zeros(Float32, num_atoms, num_atoms)
     # loop over central atoms
-    for atom_ind = 1:size(conn)[1]
+    for atom_ind in range(0, stop = length(conn) - 1)
         # loop over neighbor atoms
-        for nb_ind = 1:size(conn)[2]
+        for nb_ind in range(0, stop = length(conn[0]) - 1)
             # loop over each possible PBC image for chosen image
-            for image_ind = 1:size(conn)[3]
+            for image_ind in range(0, stop = length(conn[0][0]) - 1)
                 # only add as neighbor if atom is not current center one AND there is connectivity to image
-                if (atom_ind != image_ind) && (conn[atom_ind, nb_ind, image_ind] != 0)
-                    weight_mat[atom_ind, nb_ind] +=
-                        conn[atom_ind, nb_ind, image_ind] / maximum(conn[atom_ind, :, :])
+                if (atom_ind != image_ind) && (pyconvert(Float64, (conn[atom_ind][nb_ind][image_ind])) != 0)
+                    conn_matrix = pyconvert(Matrix, conn[atom_ind])
+                    weight_mat[atom_ind + 1, nb_ind + 1] +=
+                        pyconvert(Float32, conn[atom_ind][nb_ind][image_ind]) / maximum(conn_matrix)
                 end
             end
         end
