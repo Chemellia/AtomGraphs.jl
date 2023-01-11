@@ -15,7 +15,7 @@ using AtomGraphs: build_graph
     @test adj == wm_true
     @test els == els_true
 
-    # test that we get the same results building from a Crsytal object
+    # test that we get the same results building from a Crystal object
     adjc, elsc = build_graph(Crystal(path1))
     @test adjc == wm_true
     @test elsc == els_true
