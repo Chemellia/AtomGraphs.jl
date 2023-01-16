@@ -1,5 +1,13 @@
-using PyCall
+using PythonCall
 using NearestNeighbors
+
+# setup for pymatgen dependence for Voronoi edges
+const pmg = PythonCall.pynew()
+function __init__()
+    PythonCall.pycopy!(pmg, pyimport("pymatgen"))
+    # pyimport("pymatgen.core.structure")
+    # pyimport("pymatgen.analysis.structure_analyzer")
+end
 
 # options for decay of bond weights with distance...
 # user can of course write their own as well
@@ -34,8 +42,7 @@ function build_graph(
 
     if use_voronoi
         @info "Note that building neighbor lists and edge weights via the Voronoi method requires the assumption of periodic boundaries. If you are building a graph for a molecule, you probably do not want this..."
-        s = pyimport_conda("pymatgen.core.structure", "pymatgen=2022.3.7", "conda-forge")
-        struc = s.Structure.from_file(file_path)
+        struc = pmg.core.structure.Structure.from_file(file_path)
         weight_mat = weights_voronoi(struc)
         return weight_mat, atom_ids, struc
     else
@@ -119,8 +126,7 @@ Build graph using neighbors from faces of Voronoi polyedra and weights from area
 """
 function weights_voronoi(struc)
     num_atoms = size(struc)[1]
-    sa = pyimport_conda("pymatgen.analysis.structure_analyzer", "pymatgen=2022.3.7", "conda-forge")
-    vc = sa.VoronoiConnectivity(struc)
+    vc = pmg.analysis.structure_analyzer.VoronoiConnectivity(struc)
     conn = vc.connectivity_array
     weight_mat = zeros(Float32, num_atoms, num_atoms)
     # loop over central atoms

@@ -1,0 +1,4 @@
+
+[deps."pymatgen.core.structure"]
+channel = "conda-forge"
+version = "2022.3.7"
