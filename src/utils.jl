@@ -17,7 +17,7 @@ function build_supercell(sys::AbstractSystem, repfactors)
     new_box = repfactors .* old_box
     symbols = repeat(atomic_symbol(sys), prod(repfactors))
 
-    integer_offsets = Iterators.product(range.(Ref(0), repfactors .- 1)...)
+    integer_offsets = Iterators.product(range.(Ref(0), repfactors .- 1, step=1)...)
     position_offsets = [sum(offset .* old_box) for offset in integer_offsets]
 
     old_positions = position(sys)
