@@ -1,5 +1,6 @@
 using PythonCall
 using AtomsBase
+using AtomsIO
 using Unitful
 using NearestNeighbors
 include("utils.jl")
@@ -10,11 +11,11 @@ inverse_square(x) = x^-2.0
 exp_decay(x) = exp(-x)
 
 """
-Build graph from a file storing a crystal structure (currently supports anything Xtals.jl can read in). Returns the weight matrix and elements used for constructing an `AtomGraph`.
+Build graph from a file storing a crystal structure (will be read in using AtomsIO, which in turn calls ASE). Returns the weight matrix and elements used for constructing an `AtomGraph`.
 
 # Arguments
 ## Required Arguments
-- `file_path::String`: Path to Xtals-readable file containing a molecule/crystal structure
+- `file_path::String`: Path to ASE-readable file containing a molecule/crystal structure
 
 ## Keyword Arguments
 - `use_voronoi::bool`: if true, use Voronoi method for neighbor lists, if false use cutoff method
@@ -32,8 +33,8 @@ function build_graph(
     max_num_nbr::Integer = 12,
     dist_decay_func::Function = inverse_square,
 )
-    c = Crystal(abspath(file_path))
-    atom_ids = String.(c.atoms.species)
+    c = load_system(abspath(file_path))
+    atom_ids = String.(atomic_symbol(c))
 
     if use_voronoi
         @info "Note that building neighbor lists and edge weights via the Voronoi method requires the assumption of periodic boundaries. If you are building a graph for a molecule, you probably do not want this..."
