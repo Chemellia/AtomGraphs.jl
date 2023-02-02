@@ -1,5 +1,9 @@
-using PyCall
+using PythonCall
+using AtomsBase
+using AtomsIO
+using Unitful
 using NearestNeighbors
+include("utils.jl")
 
 # options for decay of bond weights with distance...
 # user can of course write their own as well
@@ -7,11 +11,11 @@ inverse_square(x) = x^-2.0
 exp_decay(x) = exp(-x)
 
 """
-Build graph from a file storing a crystal structure (currently supports anything Xtals.jl can read in). Returns the weight matrix and elements used for constructing an `AtomGraph`.
+Build graph from a file storing a crystal structure (will be read in using AtomsIO, which in turn calls ASE). Returns the weight matrix and elements used for constructing an `AtomGraph`.
 
 # Arguments
 ## Required Arguments
-- `file_path::String`: Path to Xtals-readable file containing a molecule/crystal structure
+- `file_path::String`: Path to ASE-readable file containing a molecule/crystal structure
 
 ## Keyword Arguments
 - `use_voronoi::bool`: if true, use Voronoi method for neighbor lists, if false use cutoff method
@@ -29,12 +33,12 @@ function build_graph(
     max_num_nbr::Integer = 12,
     dist_decay_func::Function = inverse_square,
 )
-    c = Crystal(abspath(file_path))
-    atom_ids = String.(c.atoms.species)
+    c = load_system(abspath(file_path))
+    atom_ids = String.(atomic_symbol(c))
 
     if use_voronoi
         @info "Note that building neighbor lists and edge weights via the Voronoi method requires the assumption of periodic boundaries. If you are building a graph for a molecule, you probably do not want this..."
-        s = pyimport_conda("pymatgen.core.structure", "pymatgen=2022.3.7", "conda-forge")
+        s = pyimport("pymatgen.core.structure")
         struc = s.Structure.from_file(file_path)
         weight_mat = weights_voronoi(struc)
         return weight_mat, atom_ids, struc
@@ -49,13 +53,15 @@ function build_graph(
 
 end
 
+atomic_symbol(c::Crystal) = c.atoms.species
+
 """
-Build graph from a Crystal object. Currently only supports the "cutoff" method of neighbor list/weight calculation (not Voronoi).
+Build graph from an object. Currently only supports the "cutoff" method of neighbor list/weight calculation (not Voronoi).
 This dispatch exists to support autodiff of graph-building.
 
 # Arguments
 ## Required Arguments
-- `crys::Crystal`: Crystal object representing the atomic geometry from which to build a graph
+- `sys`: either an Xtals Crystal object or an AtomsBase AbstractSystem representing the atomic geometry from which to build a graph
 
 ## Keyword Arguments
 - `cutoff_radius::Real=8.0`: cutoff radius for atoms to be considered neighbors (in angstroms)
@@ -63,13 +69,13 @@ This dispatch exists to support autodiff of graph-building.
 - `dist_decay_func::Function=inverse_square`: function to determine falloff of graph edge weights with neighbor distance
 """
 function build_graph(
-    crys::Crystal;
+    sys;
     cutoff_radius::Real = 8.0,
     max_num_nbr::Integer = 12,
     dist_decay_func::Function = inverse_square,
 )
 
-    is, js, dists = neighbor_list(crys; cutoff_radius = cutoff_radius)
+    is, js, dists = neighbor_list(sys; cutoff_radius = cutoff_radius)
     weight_mat = weights_cutoff(
         is,
         js,
@@ -77,7 +83,7 @@ function build_graph(
         max_num_nbr = max_num_nbr,
         dist_decay_func = dist_decay_func,
     )
-    return weight_mat, String.(crys.atoms.species), crys
+    return weight_mat, String.(atomic_symbol(sys)), sys
 end
 
 """
@@ -118,21 +124,22 @@ end
 Build graph using neighbors from faces of Voronoi polyedra and weights from areas. Based on the approach from https://github.com/ulissigroup/uncertainty_benchmarking/blob/aabb407807e35b5fd6ad06b14b440609ae09e6ef/BNN/data_pyro.py#L268
 """
 function weights_voronoi(struc)
-    num_atoms = size(struc)[1]
-    sa = pyimport_conda("pymatgen.analysis.structure_analyzer", "pymatgen=2022.3.7", "conda-forge")
+    num_atoms = length(struc)
+    sa = pyimport("pymatgen.analysis.structure_analyzer")
     vc = sa.VoronoiConnectivity(struc)
     conn = vc.connectivity_array
     weight_mat = zeros(Float32, num_atoms, num_atoms)
     # loop over central atoms
-    for atom_ind = 1:size(conn)[1]
+    for atom_ind in range(0, stop = length(conn) - 1)
         # loop over neighbor atoms
-        for nb_ind = 1:size(conn)[2]
+        for nb_ind in range(0, stop = length(conn[0]) - 1)
             # loop over each possible PBC image for chosen image
-            for image_ind = 1:size(conn)[3]
+            for image_ind in range(0, stop = length(conn[0][0]) - 1)
                 # only add as neighbor if atom is not current center one AND there is connectivity to image
-                if (atom_ind != image_ind) && (conn[atom_ind, nb_ind, image_ind] != 0)
-                    weight_mat[atom_ind, nb_ind] +=
-                        conn[atom_ind, nb_ind, image_ind] / maximum(conn[atom_ind, :, :])
+                if (atom_ind != image_ind) && (pyconvert(Float64, (conn[atom_ind][nb_ind][image_ind])) != 0)
+                    conn_matrix = pyconvert(Matrix, conn[atom_ind])
+                    weight_mat[atom_ind + 1, nb_ind + 1] +=
+                        pyconvert(Float32, conn[atom_ind][nb_ind][image_ind]) / maximum(conn_matrix)
                 end
             end
         end
@@ -145,33 +152,44 @@ function weights_voronoi(struc)
     weight_mat = weight_mat ./ maximum(weight_mat)
 end
 
+# helper functions for dispatching neighbor_list on different types, see below
+function nl_prep(crys::Crystal)
+    min_celldim = min(crys.box.a, crys.box.b, crys.box.c)
+    n_atoms = crys.atoms.n
+    supercell = replicate(crys, (3, 3, 3))
+    return min_celldim, n_atoms, Cart(supercell.atoms.coords, supercell.box).x
+end
+
+function nl_prep(sys::AbstractSystem)
+    min_celldim = minimum([sqrt(sum(v.^2)) for v in ustrip.(bounding_box(sys))])
+    n_atoms = length(sys)
+    _, _, sc_pos = build_supercell(sys, (3,3,3))
+    sc_pos = hcat(ustrip.(sc_pos)...)
+    return min_celldim, n_atoms, sc_pos
+end
 
 """
-Find all lists of pairs of atoms in `crys` that are within a distance of `cutoff_radius` of each other, respecting periodic boundary conditions.
+Find all lists of pairs of atoms in sys (which can be an Xtals.Crystal or any AtomsBase AbstractSystem object) that are within a distance of `cutoff_radius` of each other, respecting periodic boundary conditions.
 
 Returns as is, js, dists to be compatible with ASE's output format for the analogous function.
 """
-function neighbor_list(crys::Crystal; cutoff_radius::Real = 8.0)
-    n_atoms = crys.atoms.n
-
-    # make 3 x 3 x 3 supercell and find indices of "middle" atoms
+function neighbor_list(sys; cutoff_radius::Real = 8.0)
+    # we make a 3 x 3 x 3 supercell and find indices of "middle" atoms
     # as well as index mapping from outer -> inner
-    supercell = replicate(crys, (3, 3, 3))
+    min_celldim, n_atoms, sc_pos = nl_prep(sys)
 
-    # check for size of cutoff radius relative to size of cell
-    min_celldim = min(crys.box.a, crys.box.b, crys.box.c)
     if cutoff_radius >= min_celldim
         @warn "Your cutoff radius is quite large relative to the size of your unit cell. This may cause issues with neighbor list generation, and will definitely cause a very dense graph. To avoid issues, I'm setting it to be approximately equal to the smallest unit cell dimension."
         cutoff_radius = 0.99 * min_celldim
     end
 
     # todo: try BallTree, also perhaps other leafsize values
-    #tree = BruteTree(sc.atoms.coords.xf, PeriodicEuclidean([1.0, 1.0, 1.0]))
-    tree = BruteTree(Cart(supercell.atoms.coords, supercell.box).x)
-
+    # also, the whole supercell thing could probably be avoided (and this function sped up substantially) by doing this using something like:
+    # ptree = BruteTree(hcat(ustrip.(position(s))...), PeriodicEuclidean([1,1,1]))
+    # but I don't have time to carefully test that right now and I know the supercell thing should work
+    tree = BruteTree(sc_pos)
     is_raw = 13*n_atoms+1:14*n_atoms
-    js_raw =
-        inrange(tree, Cart(supercell.atoms.coords[is_raw], supercell.box).x, cutoff_radius)
+    js_raw = inrange(tree, sc_pos[:, is_raw], cutoff_radius)
 
     index_map(i) = (i - 1) % n_atoms + 1 # I suddenly understand why some people dislike 1-based indexing
 
@@ -184,11 +202,10 @@ function neighbor_list(crys::Crystal; cutoff_radius::Real = 8.0)
         ]
     end
     ijraw_pairs = [(split1...)...]
-    get_pairdist((i, j)) = distance(supercell.atoms, supercell.box, i, j, false)
+    get_pairdist((i,j)) = sqrt(sum((sc_pos[:, i] .- sc_pos[:, j]).^2))
     dists = get_pairdist.(ijraw_pairs)
     is = index_map.([t[1] for t in ijraw_pairs])
     js = index_map.([t[2] for t in ijraw_pairs])
-
     return is, js, dists
 end
 
