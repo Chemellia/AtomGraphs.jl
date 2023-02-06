@@ -24,6 +24,8 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 Xtals = "ede5f01d-793e-4c47-9885-c447d1f18d6d"
 
 [compat]
+AtomsBase = "0.3"
+AtomsIO = "0.1"
 Cairo = "1"
 ChemistryFeaturization = "0.7"
 Colors = "0.12"
@@ -35,6 +37,8 @@ MolecularGraph = "0.11"
 NearestNeighbors = "0.4"
 PythonCall = "0.9.10"
 SimpleWeightedGraphs = "1.2"
+StaticArrays = "1.5"
+Unitful = "1.12"	
 Xtals = "0.3, 0.4"
 julia = "1.6, 1.7"
 
