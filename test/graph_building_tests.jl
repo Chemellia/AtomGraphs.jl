@@ -46,4 +46,13 @@ using Unitful
     adjs, elss = build_graph(sys)
     @test adjs == wm_true
     @test elss == els_true
+
+    # check also that the "shortcut syntax" works
+    agc = AtomGraph(c)
+    ags = AtomGraph(sys)
+    @test agc.graph.weights == wm_true
+    @test ags.graph.weights == wm_true
+
+    @test agc.elements == els_true
+    @test ags.elements == els_true
 end

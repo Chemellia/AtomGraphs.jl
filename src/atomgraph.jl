@@ -129,12 +129,12 @@ function AtomGraph(
 end
 
 """
-    AtomGraph(crys::Crystal; id="", cutoff_radius = 8.0, max_num_nbr = 12, dist_decay_func = inverse_square)
+    AtomGraph(sys; id="", cutoff_radius = 8.0, max_num_nbr = 12, dist_decay_func = inverse_square)
 
 Construct an AtomGraph object from a Crystal object (defined in Xtals.jl). For now, only supports cutoff-based graph building.
 
 # Required Arguments
-- `crys::Crystal`: Crystal from which to build the graph
+- `sys`: Either an `Xtals.Crystal` object or any AtomsBase `AbstractSystem` object from which to build the graph
 
 # Optional Arguments
 - `id::String`: ID associated with structure (e.g. identifier from online database). Defaults to the empty string.
@@ -146,19 +146,19 @@ Construct an AtomGraph object from a Crystal object (defined in Xtals.jl). For n
 `max_num_nbr` is a "soft" limit – if multiple neighbors are at the same distance, the full neighbor list may be longer.
 """
 function AtomGraph(
-    crys::Crystal;
+    sys;
     id::String = "",
     cutoff_radius::Real = 8.0,
     max_num_nbr::Integer = 12,
     dist_decay_func::Function = inverse_square,
 )
     adj_mat, elements = build_graph(
-        crys;
+        sys;
         cutoff_radius = cutoff_radius,
         max_num_nbr = max_num_nbr,
         dist_decay_func = dist_decay_func,
     )
-    ag = AtomGraph(adj_mat, elements, crys, id)
+    AtomGraph(adj_mat, elements, sys, id)
 end
 
 # helper fcn
