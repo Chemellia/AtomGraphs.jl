@@ -10,11 +10,15 @@ using MolecularGraph
 import AtomsBase: atomic_symbol
 
 import ChemistryFeaturization: elements
+using ChainRulesCore
+using ZygoteRules
 
 include("atomgraph.jl")
 export AtomGraph, elements, visualize
 
 include("graph_building.jl")
 export inverse_square, exp_decay
+
+include("adjoints.jl")
 
 end

@@ -10,6 +10,8 @@ include("utils.jl")
 inverse_square(x) = x^-2.0
 exp_decay(x) = exp(-x)
 
+const pymat_structure = pyimport("pymatgen.core.structure")
+
 """
 Build graph from a file storing a crystal structure (will be read in using AtomsIO, which in turn calls ASE). Returns the weight matrix and elements used for constructing an `AtomGraph`.
 
@@ -38,8 +40,7 @@ function build_graph(
 
     if use_voronoi
         @info "Note that building neighbor lists and edge weights via the Voronoi method requires the assumption of periodic boundaries. If you are building a graph for a molecule, you probably do not want this..."
-        s = pyimport("pymatgen.core.structure")
-        struc = s.Structure.from_file(file_path)
+        struc = pymat_structure..Structure.from_file(file_path)
         weight_mat = weights_voronoi(struc)
         return weight_mat, atom_ids, struc
     else
@@ -83,8 +84,42 @@ function build_graph(
         max_num_nbr = max_num_nbr,
         dist_decay_func = dist_decay_func,
     )
-    return weight_mat, String.(atomic_symbol(sys)), sys
+    return weight_mat # , string.(atomic_symbol(sys)), sys
 end
+
+# """
+# Build graph using neighbor number cutoff method adapted from original CGCNN.
+# 
+# !!! note
+#     `max_num_nbr` is a "soft" max, in that if there are more of the same distance as the last, all of those will be added.
+# """
+# function weights_cutoff(is, js, dists; max_num_nbr = 12, dist_decay_func = inverse_square)
+#     # sort by distance
+#     ijd = sort([t for t in zip(is, js, dists)], by = t -> t[3])
+# 
+#     # initialize neighbor counts
+#     num_atoms = maximum(is)
+#     local nb_counts = Dict(i => 0 for i = 1:num_atoms)
+#     local longest_dists = Dict(i => 0.0 for i = 1:num_atoms)
+# 
+#     # iterate over list of tuples to build edge weights...
+#     # note that neighbor list double counts so we only have to increment one counter per pair
+#     weight_mat = zeros(Float32, num_atoms, num_atoms)
+#     for (i, j, d) in ijd
+#         # if we're under the max OR if it's at the same distance as the previous one
+#         if nb_counts[i] < max_num_nbr || isapprox(longest_dists[i], d)
+#             weight_mat[i, j] += dist_decay_func(d)
+#             longest_dists[i] = d
+#             nb_counts[i] += 1
+#         end
+#     end
+# 
+#     # average across diagonal, just in case
+#     weight_mat = 0.5 .* (weight_mat .+ weight_mat')
+# 
+#     # normalize weights
+#     weight_mat = weight_mat ./ maximum(weight_mat)
+# end
 
 """
 Build graph using neighbor number cutoff method adapted from original CGCNN.
@@ -103,21 +138,38 @@ function weights_cutoff(is, js, dists; max_num_nbr = 12, dist_decay_func = inver
 
     # iterate over list of tuples to build edge weights...
     # note that neighbor list double counts so we only have to increment one counter per pair
-    weight_mat = zeros(Float32, num_atoms, num_atoms)
-    for (i, j, d) in ijd
-        # if we're under the max OR if it's at the same distance as the previous one
-        if nb_counts[i] < max_num_nbr || isapprox(longest_dists[i], d)
-            weight_mat[i, j] += dist_decay_func(d)
-            longest_dists[i] = d
-            nb_counts[i] += 1
-        end
-    end
+    weight_mat = zeros(Float64, round(Int,num_atoms), round(Int,num_atoms))
+    weight_mat, longest_dists = _cutoff!(weight_mat,
+                                         dist_decay_func,
+                                         ijd,
+                                         nb_counts,
+                                         longest_dists)
 
     # average across diagonal, just in case
     weight_mat = 0.5 .* (weight_mat .+ weight_mat')
 
     # normalize weights
     weight_mat = weight_mat ./ maximum(weight_mat)
+    weight_mat
+end
+
+function _cutoff!(weight_mat, f, ijd,
+                  nb_counts, longest_dists; max_num_nbr = 12)
+
+    for (i, j, d) in ijd
+        # FiniteDifferences doesn't like non integers as indices
+        # and is used to test
+        i, j = round.(Int, (i,j))
+
+        # if we're under the max OR if it's at the same distance as the previous one
+        if nb_counts[i] < max_num_nbr || isapprox(longest_dists[i], d)
+            weight_mat[i, j] += f(d)
+            longest_dists[i] = d
+            nb_counts[i] += 1
+        end
+    end
+
+    weight_mat, longest_dists
 end
 
 """
