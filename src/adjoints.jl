@@ -1,3 +1,4 @@
+using Zygote
 using ZygoteRules: @adjoint
 
 @adjoint function Dict(g::Base.Generator)
@@ -30,4 +31,20 @@ end
   end
 
   (y,ld), cutoff_pb
+end
+
+function Zygote.ChainRulesCore.rrule(::Type{T}, x...) where T <: SArray{D, Ts, ND, L} where {D, Ts, ND, L}
+  y = SArray{D, Ts, ND, L}(x...)
+  function sarray_pb(Δy)
+    Δy = map(t->eltype(x...)(t...), Δy)
+    return NoTangent(), (Δy...,)
+  end
+  return y, sarray_pb
+end
+
+Zygote.@adjoint function Unitful.ustrip(x::Quantity{T, D, U}) where {T, D, U}
+  function back(Δ)
+    (Quantity{T, D, U}(Δ), )
+  end
+  Unitful.ustrip(x), back
 end

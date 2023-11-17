@@ -87,40 +87,6 @@ function build_graph(
     return weight_mat # , string.(atomic_symbol(sys)), sys
 end
 
-# """
-# Build graph using neighbor number cutoff method adapted from original CGCNN.
-# 
-# !!! note
-#     `max_num_nbr` is a "soft" max, in that if there are more of the same distance as the last, all of those will be added.
-# """
-# function weights_cutoff(is, js, dists; max_num_nbr = 12, dist_decay_func = inverse_square)
-#     # sort by distance
-#     ijd = sort([t for t in zip(is, js, dists)], by = t -> t[3])
-# 
-#     # initialize neighbor counts
-#     num_atoms = maximum(is)
-#     local nb_counts = Dict(i => 0 for i = 1:num_atoms)
-#     local longest_dists = Dict(i => 0.0 for i = 1:num_atoms)
-# 
-#     # iterate over list of tuples to build edge weights...
-#     # note that neighbor list double counts so we only have to increment one counter per pair
-#     weight_mat = zeros(Float32, num_atoms, num_atoms)
-#     for (i, j, d) in ijd
-#         # if we're under the max OR if it's at the same distance as the previous one
-#         if nb_counts[i] < max_num_nbr || isapprox(longest_dists[i], d)
-#             weight_mat[i, j] += dist_decay_func(d)
-#             longest_dists[i] = d
-#             nb_counts[i] += 1
-#         end
-#     end
-# 
-#     # average across diagonal, just in case
-#     weight_mat = 0.5 .* (weight_mat .+ weight_mat')
-# 
-#     # normalize weights
-#     weight_mat = weight_mat ./ maximum(weight_mat)
-# end
-
 """
 Build graph using neighbor number cutoff method adapted from original CGCNN.
 
@@ -235,29 +201,33 @@ function neighbor_list(sys; cutoff_radius::Real = 8.0)
         cutoff_radius = 0.99 * min_celldim
     end
 
+    get_pairdist((i,j)) = sqrt(sum((sc_pos[:, i] .- sc_pos[:, j]).^2))
+    index_map(i) = (i - 1) % n_atoms + 1 # I suddenly understand why some people dislike 1-based indexing
+    
     # todo: try BallTree, also perhaps other leafsize values
     # also, the whole supercell thing could probably be avoided (and this function sped up substantially) by doing this using something like:
     # ptree = BruteTree(hcat(ustrip.(position(s))...), PeriodicEuclidean([1,1,1]))
     # but I don't have time to carefully test that right now and I know the supercell thing should work
-    tree = BruteTree(sc_pos)
-    is_raw = 13*n_atoms+1:14*n_atoms
-    js_raw = inrange(tree, sc_pos[:, is_raw], cutoff_radius)
+    is, js, ijraw_pairs = Zygote.ignore() do
+        tree = BruteTree(sc_pos)
+        is_raw = 13*n_atoms+1:14*n_atoms
+        js_raw = inrange(tree, sc_pos[:, is_raw], cutoff_radius)
 
-    index_map(i) = (i - 1) % n_atoms + 1 # I suddenly understand why some people dislike 1-based indexing
 
-    # this looks horrifying but it does do the right thing...
-    #ijraw_pairs = [p for p in Iterators.flatten([Iterators.product([p for p in zip(is_raw, js_raw)][n]...) for n in 1:4]) if p[1]!=p[2]]
-    split1 = map(zip(is_raw, js_raw)) do x
-        return [
-            p for p in [(x[1], [j for j in js if j != x[1]]...) for js in x[2]] if
-            length(p) == 2
-        ]
+        # this looks horrifying but it does do the right thing...
+        #ijraw_pairs = [p for p in Iterators.flatten([Iterators.product([p for p in zip(is_raw, js_raw)][n]...) for n in 1:4]) if p[1]!=p[2]]
+        split1 = map(zip(is_raw, js_raw)) do x
+            return [
+                p for p in [(x[1], [j for j in js if j != x[1]]...) for js in x[2]] if
+                length(p) == 2
+            ]
+        end
+        ijraw_pairs = [(split1...)...]
+        is = index_map.([t[1] for t in ijraw_pairs])
+        js = index_map.([t[2] for t in ijraw_pairs])
+        is, js, ijraw_pairs
     end
-    ijraw_pairs = [(split1...)...]
-    get_pairdist((i,j)) = sqrt(sum((sc_pos[:, i] .- sc_pos[:, j]).^2))
     dists = get_pairdist.(ijraw_pairs)
-    is = index_map.([t[1] for t in ijraw_pairs])
-    js = index_map.([t[2] for t in ijraw_pairs])
     return is, js, dists
 end
 

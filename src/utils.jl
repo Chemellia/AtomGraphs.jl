@@ -12,23 +12,23 @@ using AtomsBase
 """
 function build_supercell(sys::AbstractSystem, repfactors)
     @assert length(repfactors) == n_dimensions(sys) "Your list of replication factors doesn't match the dimensionality of the system!"
-
+    # @show repfactors
     old_box = bounding_box(sys)
     new_box = repfactors .* old_box
-    symbols = repeat(atomic_symbol(sys), prod(repfactors))
-
-    integer_offsets = Iterators.product(range.(Ref(0), repfactors .- 1, step=1)...)
-    position_offsets = [sum(offset .* old_box) for offset in integer_offsets]
-
-    old_positions = position(sys)
-    new_positions = repeat(MArray.(position(sys)), prod(repfactors))
-
-    for (i, offset) in enumerate(position_offsets)
-        indices = (1:length(sys)) .+ (i-1) * length(sys)
-        for (j, pos) in enumerate(old_positions)
-            new_positions[indices[j]] = pos .+ offset
-        end
+    symbols = Zygote.ignore() do
+        repeat(atomic_symbol(sys), prod(repfactors))
     end
 
-    return new_box, symbols, SVector.(new_positions)
+    integer_offsets = Iterators.product(range.(0, repfactors .- 1, step=1)...)
+    position_offsets = [sum(offset .* old_box) for offset in integer_offsets]
+    old_positions = position(sys)
+
+    a = map(enumerate(position_offsets)) do (i,offset)
+         map(enumerate(old_positions)) do (j, pos)
+           pos .+ offset
+         end
+       end
+    new_positions = reduce(vcat, vec(a))
+    
+    return new_box, symbols, new_positions
 end
