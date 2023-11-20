@@ -10,6 +10,8 @@ include("utils.jl")
 inverse_square(x) = x^-2.0
 exp_decay(x) = exp(-x)
 
+const pymat_structure = pyimport("pymatgen.core.structure")
+
 """
 Build graph from a file storing a crystal structure (will be read in using AtomsIO, which in turn calls ASE). Returns the weight matrix and elements used for constructing an `AtomGraph`.
 
@@ -38,8 +40,7 @@ function build_graph(
 
     if use_voronoi
         @info "Note that building neighbor lists and edge weights via the Voronoi method requires the assumption of periodic boundaries. If you are building a graph for a molecule, you probably do not want this..."
-        s = pyimport("pymatgen.core.structure")
-        struc = s.Structure.from_file(file_path)
+        struc = pymat_structure..Structure.from_file(file_path)
         weight_mat = weights_voronoi(struc)
         return weight_mat, atom_ids, struc
     else
@@ -83,7 +84,7 @@ function build_graph(
         max_num_nbr = max_num_nbr,
         dist_decay_func = dist_decay_func,
     )
-    return weight_mat, String.(atomic_symbol(sys)), sys
+    return weight_mat # , string.(atomic_symbol(sys)), sys
 end
 
 """
@@ -103,21 +104,38 @@ function weights_cutoff(is, js, dists; max_num_nbr = 12, dist_decay_func = inver
 
     # iterate over list of tuples to build edge weights...
     # note that neighbor list double counts so we only have to increment one counter per pair
-    weight_mat = zeros(Float32, num_atoms, num_atoms)
-    for (i, j, d) in ijd
-        # if we're under the max OR if it's at the same distance as the previous one
-        if nb_counts[i] < max_num_nbr || isapprox(longest_dists[i], d)
-            weight_mat[i, j] += dist_decay_func(d)
-            longest_dists[i] = d
-            nb_counts[i] += 1
-        end
-    end
+    weight_mat = zeros(Float64, round(Int,num_atoms), round(Int,num_atoms))
+    weight_mat, longest_dists = _cutoff!(weight_mat,
+                                         dist_decay_func,
+                                         ijd,
+                                         nb_counts,
+                                         longest_dists)
 
     # average across diagonal, just in case
     weight_mat = 0.5 .* (weight_mat .+ weight_mat')
 
     # normalize weights
     weight_mat = weight_mat ./ maximum(weight_mat)
+    weight_mat
+end
+
+function _cutoff!(weight_mat, f, ijd,
+                  nb_counts, longest_dists; max_num_nbr = 12)
+
+    for (i, j, d) in ijd
+        # FiniteDifferences doesn't like non integers as indices
+        # and is used to test
+        i, j = round.(Int, (i,j))
+
+        # if we're under the max OR if it's at the same distance as the previous one
+        if nb_counts[i] < max_num_nbr || isapprox(longest_dists[i], d)
+            weight_mat[i, j] += f(d)
+            longest_dists[i] = d
+            nb_counts[i] += 1
+        end
+    end
+
+    weight_mat, longest_dists
 end
 
 """
@@ -183,29 +201,33 @@ function neighbor_list(sys; cutoff_radius::Real = 8.0)
         cutoff_radius = 0.99 * min_celldim
     end
 
+    get_pairdist((i,j)) = sqrt(sum((sc_pos[:, i] .- sc_pos[:, j]).^2))
+    index_map(i) = (i - 1) % n_atoms + 1 # I suddenly understand why some people dislike 1-based indexing
+    
     # todo: try BallTree, also perhaps other leafsize values
     # also, the whole supercell thing could probably be avoided (and this function sped up substantially) by doing this using something like:
     # ptree = BruteTree(hcat(ustrip.(position(s))...), PeriodicEuclidean([1,1,1]))
     # but I don't have time to carefully test that right now and I know the supercell thing should work
-    tree = BruteTree(sc_pos)
-    is_raw = 13*n_atoms+1:14*n_atoms
-    js_raw = inrange(tree, sc_pos[:, is_raw], cutoff_radius)
+    is, js, ijraw_pairs = Zygote.ignore() do
+        tree = BruteTree(sc_pos)
+        is_raw = 13*n_atoms+1:14*n_atoms
+        js_raw = inrange(tree, sc_pos[:, is_raw], cutoff_radius)
 
-    index_map(i) = (i - 1) % n_atoms + 1 # I suddenly understand why some people dislike 1-based indexing
 
-    # this looks horrifying but it does do the right thing...
-    #ijraw_pairs = [p for p in Iterators.flatten([Iterators.product([p for p in zip(is_raw, js_raw)][n]...) for n in 1:4]) if p[1]!=p[2]]
-    split1 = map(zip(is_raw, js_raw)) do x
-        return [
-            p for p in [(x[1], [j for j in js if j != x[1]]...) for js in x[2]] if
-            length(p) == 2
-        ]
+        # this looks horrifying but it does do the right thing...
+        #ijraw_pairs = [p for p in Iterators.flatten([Iterators.product([p for p in zip(is_raw, js_raw)][n]...) for n in 1:4]) if p[1]!=p[2]]
+        split1 = map(zip(is_raw, js_raw)) do x
+            return [
+                p for p in [(x[1], [j for j in js if j != x[1]]...) for js in x[2]] if
+                length(p) == 2
+            ]
+        end
+        ijraw_pairs = [(split1...)...]
+        is = index_map.([t[1] for t in ijraw_pairs])
+        js = index_map.([t[2] for t in ijraw_pairs])
+        is, js, ijraw_pairs
     end
-    ijraw_pairs = [(split1...)...]
-    get_pairdist((i,j)) = sqrt(sum((sc_pos[:, i] .- sc_pos[:, j]).^2))
     dists = get_pairdist.(ijraw_pairs)
-    is = index_map.([t[1] for t in ijraw_pairs])
-    js = index_map.([t[2] for t in ijraw_pairs])
     return is, js, dists
 end
 
